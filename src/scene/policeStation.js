@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
+import { box, paint, makeCanvasTexture } from "./geometryUtils.js";
 
 // 출발 지점 경찰서 (본관·별관·담장/정문·국기 게양대·순찰차·주차장).
 // 외부 모델 없이 기본 도형 + CanvasTexture만 사용한다.
@@ -30,35 +31,6 @@ export function createPoliceStation(config) {
 export function isOnStationGrounds(x, z, config) {
   const { lot } = config.policeStation;
   return x >= lot.xMin && x <= lot.xMax && z >= lot.zMin && z <= lot.zMax;
-}
-
-// ── 공용 헬퍼 ─────────────────────────────────────────────────
-
-function box(w, h, d, x, y, z) {
-  const g = new THREE.BoxGeometry(w, h, d);
-  g.translate(x, y, z);
-  return g;
-}
-
-// 지오메트리 전체에 단색 버텍스 컬러를 입힌다 (여러 색 부품을 하나로 병합하기 위함).
-function paint(geo, hex) {
-  const c = new THREE.Color(hex);
-  const n = geo.attributes.position.count;
-  const colors = new Float32Array(n * 3);
-  for (let i = 0; i < n; i++) {
-    colors[i * 3] = c.r;
-    colors[i * 3 + 1] = c.g;
-    colors[i * 3 + 2] = c.b;
-  }
-  geo.setAttribute("color", new THREE.BufferAttribute(colors, 3));
-  return geo;
-}
-
-function makeCanvasTexture(canvas) {
-  const tex = new THREE.CanvasTexture(canvas);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  tex.anisotropy = 4;
-  return tex;
 }
 
 // ── 주차장 ──────────────────────────────────────────────────

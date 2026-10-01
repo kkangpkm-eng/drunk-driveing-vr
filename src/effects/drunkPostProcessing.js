@@ -27,17 +27,22 @@ export function createDrunkPostProcessing(renderer, scene, camera) {
 
   let elapsed = 0;
 
-  function update(dt, intensity, visualCfg) {
+  // displayMode: "flat" | "stereo" | "xr".
+  // VR에서는 포스트프로세싱(이중시야)과 CSS 비네팅을 쓸 수 없으므로 끄고(비네팅은 vrVignette가 대신),
+  // CSS 블러는 화면 분할 방식에서만 vrCfg.blurInStereo에 따라 허용한다.
+  function update(dt, intensity, visualCfg, displayMode = "flat", vrCfg = {}) {
     elapsed += dt;
     const lowSpec = visualCfg.lowSpecMode;
+    const flat = displayMode === "flat";
+    const blurAllowed = flat || (displayMode === "stereo" && vrCfg.blurInStereo);
 
-    const doubleVisionOn = visualCfg.doubleVisionEnabled && !lowSpec && intensity > 0.01;
+    const doubleVisionOn = flat && visualCfg.doubleVisionEnabled && !lowSpec && intensity > 0.01;
     afterimagePass.enabled = doubleVisionOn;
     if (doubleVisionOn) {
       afterimagePass.damp = visualCfg.doubleVisionDamp * intensity;
     }
 
-    if (visualCfg.blurEnabled && !lowSpec && intensity > 0.01) {
+    if (blurAllowed && visualCfg.blurEnabled && !lowSpec && intensity > 0.01) {
       const phase = Math.sin((elapsed / visualCfg.blurPeriodS) * Math.PI * 2) * 0.5 + 0.5;
       const blurPx = phase * visualCfg.blurMaxPixels * intensity;
       canvas.style.filter = blurPx > 0.02 ? `blur(${blurPx.toFixed(2)}px)` : "";
@@ -45,7 +50,7 @@ export function createDrunkPostProcessing(renderer, scene, camera) {
       canvas.style.filter = "";
     }
 
-    if (visualCfg.vignetteEnabled && intensity > 0.01) {
+    if (flat && visualCfg.vignetteEnabled && intensity > 0.01) {
       vignetteEl.style.opacity = String(Math.min(1, intensity) * visualCfg.vignetteMaxOpacity);
     } else {
       vignetteEl.style.opacity = "0";

@@ -3,11 +3,13 @@
 // 녹색 유지(greenHoldS) → 황색(yellowDurationS) → 적색(redDurationS) → 녹색 순으로 한 번 전환한다.
 // 적색 중 차량 앞부분이 정지선을 넘으면(이전 프레임 < stopLineZ ≤ 현재 프레임) 신호위반 1회.
 export class TrafficSignalController {
-  constructor(config, layout, setVisualState) {
-    this.cfg = config.intersection.signal;
+  // layout: getCrosswalkLayouts()의 항목 (layout.cfg.signal에 이 횡단보도의 신호 설정이 들어 있음)
+  constructor(layout, setVisualState) {
+    this.cfg = layout.cfg.signal;
+    this.index = layout.index;
     this.stopLineZ = layout.stopLineZ;
     this.setVisualState = setVisualState;
-    this.listeners = { red: [], violation: [] };
+    this.listeners = { yellow: [], red: [], violation: [] };
     this.reset();
   }
 
@@ -34,7 +36,7 @@ export class TrafficSignalController {
     this.state = state;
     this.phaseTime = 0;
     this.setVisualState(state);
-    if (state === "red") this.listeners.red.forEach((fn) => fn());
+    if (this.listeners[state]) this.listeners[state].forEach((fn) => fn(this));
   }
 
   update(dt, carFrontZ) {
@@ -56,7 +58,7 @@ export class TrafficSignalController {
     if (this.prevFrontZ !== null && this.state === "red" && !this.violated) {
       if (this.prevFrontZ < this.stopLineZ && carFrontZ >= this.stopLineZ) {
         this.violated = true;
-        this.listeners.violation.forEach((fn) => fn());
+        this.listeners.violation.forEach((fn) => fn(this));
       }
     }
     this.prevFrontZ = carFrontZ;

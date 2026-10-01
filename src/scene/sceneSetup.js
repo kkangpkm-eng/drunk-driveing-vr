@@ -12,9 +12,8 @@ export function createSceneSetup(canvas, config) {
     config.render.near,
     config.render.far
   );
-  // 차량 좌표계에서 전방을 +Z로 두기로 했으므로, 기본값(-Z를 바라봄)인
-  // 카메라를 180도 돌려 자동차가 나아가는 방향을 보게 만든다.
-  camera.rotation.y = Math.PI;
+  // 카메라는 main.js의 cameraRig(운전석 눈 위치, 180도 회전) 안에 넣는다.
+  // 카메라 자신의 회전은 VR 머리 방향 전용으로 비워둔다.
 
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));

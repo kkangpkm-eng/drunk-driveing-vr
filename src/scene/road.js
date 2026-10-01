@@ -1,18 +1,30 @@
 import * as THREE from "three";
-import { getIntersectionLayout } from "./intersectionLayout.js";
+import { getCrosswalkLayouts } from "./intersectionLayout.js";
 
 // 도로 중심선의 커브 구간 정의: 각 구간은 z(진행거리) 범위와
 // 그 구간이 끝날 때의 누적 좌우 오프셋(from -> to)을 갖는다.
 // 완만한 커브 3개 + 직선 구간으로 구성 (급커브 없음, VR 멀미 방지).
-const CURVE_SEGMENTS = [
+// 횡단보도(config.crosswalks)는 직선 구간에만 둘 수 있다.
+export const CURVE_SEGMENTS = [
   { start: 0, end: 250, from: 0, to: 0 }, // 시작 직선
-  { start: 250, end: 550, from: 0, to: 30 }, // 커브 1 (우측)
-  { start: 550, end: 900, from: 30, to: 30 }, // 직선
-  { start: 900, end: 1250, from: 30, to: -22 }, // 커브 2 (좌측)
-  { start: 1250, end: 1500, from: -22, to: -22 }, // 직선
-  { start: 1500, end: 1750, from: -22, to: 8 }, // 커브 3 (완만한 우측)
+  { start: 250, end: 500, from: 0, to: 30 }, // 커브 1
+  { start: 500, end: 950, from: 30, to: 30 }, // 직선
+  { start: 950, end: 1250, from: 30, to: -22 }, // 커브 2
+  { start: 1250, end: 1550, from: -22, to: -22 }, // 직선
+  { start: 1550, end: 1750, from: -22, to: 8 }, // 커브 3
   { start: 1750, end: 1800, from: 8, to: 8 }, // 도착 직선
 ];
+
+// z가 직선 구간 안에 있는지 (횡단보도 배치 검증용)
+export function isOnStraight(zMin, zMax) {
+  return CURVE_SEGMENTS.some((seg) => seg.from === seg.to && zMin >= seg.start && zMax <= seg.end);
+}
+
+// 진행거리 z에서 도로 진행 방향(heading, 0 = +Z)을 반환한다.
+export function roadHeadingAt(z) {
+  const d = 0.5;
+  return Math.atan2(roadCenterX(z + d) - roadCenterX(z - d), 2 * d);
+}
 
 function smoothstep(t) {
   const c = Math.min(1, Math.max(0, t));
@@ -38,14 +50,20 @@ export function createRoad(config) {
   const group = new THREE.Group();
   const { totalLengthM, halfWidthM, startZ } = config.road;
   const step = 5; // m 단위 샘플링 간격 (커브를 부드럽게 표현)
-  const layout = getIntersectionLayout(config);
+  const layouts = getCrosswalkLayouts(config);
 
   // 샘플 z 목록 (교차로 경계 z를 끼워 넣어 차선 끊김 위치가 정확하도록)
   const zs = [];
   for (let z = startZ; z <= totalLengthM; z += step) zs.push(z);
-  const crossZMin = layout.z - layout.crossHalf;
-  const crossZMax = layout.z + layout.crossHalf;
-  zs.push(crossZMin, crossZMax);
+  const edgeGaps = [];
+  const dashGaps = [];
+  for (const L of layouts) {
+    if (L.hasCrossRoad) {
+      edgeGaps.push([L.z - L.crossHalf, L.z + L.crossHalf]);
+      zs.push(L.z - L.crossHalf, L.z + L.crossHalf);
+    }
+    dashGaps.push([L.stopLineZ - 1, (L.hasCrossRoad ? L.z + L.crossHalf : L.crosswalkFarZ) + 1]);
+  }
   zs.sort((a, b) => a - b);
 
   // ── 아스팔트 도로 스트립 ────────────────────────────────────
@@ -55,12 +73,11 @@ export function createRoad(config) {
   // ── 갓길 라인(도로 양끝 흰색 실선) — 교차 도로 구간에서는 끊는다 ──
   const lineMat = new THREE.MeshBasicMaterial({ color: 0xf2f2f0 });
   const edgeLineWidth = 0.15;
-  const edgeGaps = [[crossZMin, crossZMax]];
   group.add(new THREE.Mesh(buildStrip(zs, halfWidthM - edgeLineWidth, halfWidthM, 0.01, edgeGaps), lineMat));
   group.add(new THREE.Mesh(buildStrip(zs, -halfWidthM, -halfWidthM + edgeLineWidth, 0.01, edgeGaps), lineMat));
 
   // ── 중앙 점선 — 정지선~교차로 구간은 비운다 ─────────────────────
-  group.add(createCenterDashes(startZ, totalLengthM, [[layout.stopLineZ - 1, crossZMax + 1]], lineMat));
+  group.add(createCenterDashes(startZ, totalLengthM, dashGaps, lineMat));
 
   return group;
 }

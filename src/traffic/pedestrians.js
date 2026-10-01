@@ -7,20 +7,22 @@ export const SIDEWALK_PAD_HEIGHT_M = 0.15;
 
 const MODEL_DIR = `${import.meta.env.BASE_URL}models/pedestrians/`;
 
-// 횡단보도 보행자. 적색 신호가 켜지면(onRed) 각자 delayAfterRedS 뒤에 walkSpeedMps로 길을 건넌다.
+// 횡단보도 보행자. 각 횡단보도의 신호가 적색이 되면(onRed(index)) 그 횡단보도의 보행자가
+// 각자 delayAfterRedS 뒤에 walkSpeedMps로 길을 건넌다.
 // 모델: Kenney "Mini Characters" (CC0) glTF의 idle/walk 애니메이션.
 // 로드 실패 또는 useGltf=false면 기본 도형 캐릭터(사인파 팔다리)로 대체한다.
+// 성능: 운전자와 activeDistanceM 이상 떨어진 보행자는 숨기고 애니메이션도 갱신하지 않는다.
 export class PedestrianManager {
-  constructor(scene, config, layout) {
+  // layouts: getCrosswalkLayouts(config) 결과
+  constructor(scene, config, layouts) {
     this.cfg = config.pedestrians;
     this.vehicleCfg = config.vehicle;
-    this.layout = layout;
+    this.layouts = layouts;
     this.roadHalfWidthM = config.road.halfWidthM;
     this.group = new THREE.Group();
     scene.add(this.group);
     this.peds = [];
-    this.redActive = false;
-    this.redTime = 0;
+    this.red = layouts.map(() => ({ active: false, time: 0 }));
     this.ready = this._spawnAll();
   }
 
@@ -28,7 +30,8 @@ export class PedestrianManager {
     const templates = new Map();
     if (this.cfg.useGltf) {
       const loader = new GLTFLoader();
-      for (const name of new Set(this.cfg.list.map((p) => p.model))) {
+      const names = new Set(this.layouts.flatMap((L) => L.cfg.pedestrians.map((p) => p.model)));
+      for (const name of names) {
         try {
           templates.set(name, await loader.loadAsync(MODEL_DIR + name));
         } catch (err) {
@@ -36,20 +39,22 @@ export class PedestrianManager {
         }
       }
     }
-    this.cfg.list.forEach((spec, i) => {
-      const gltf = templates.get(spec.model);
-      const visual = gltf ? createGltfVisual(gltf, this.cfg) : createPrimitiveVisual(i, this.cfg.heightM);
-      this.peds.push(this._makePed(spec, visual));
-    });
+    let n = 0;
+    for (const L of this.layouts) {
+      for (const spec of L.cfg.pedestrians) {
+        const gltf = templates.get(spec.model);
+        const visual = gltf ? createGltfVisual(gltf, this.cfg) : createPrimitiveVisual(n, this.cfg.heightM);
+        this.peds.push(this._makePed(L, spec, visual));
+        n++;
+      }
+    }
     // 로딩 중에 이미 적색이 켜졌을 수 있으므로 신호 상태는 유지한 채 위치만 초기화
-    const { redActive, redTime } = this;
+    const red = this.red.map((r) => ({ ...r }));
     this.reset();
-    this.redActive = redActive;
-    this.redTime = redTime;
+    this.red = red;
   }
 
-  _makePed(spec, visual) {
-    const L = this.layout;
+  _makePed(L, spec, visual) {
     const edge = this.roadHalfWidthM + this.cfg.waitOffsetFromRoadEdgeM;
     const sideSign = spec.startSide === "left" ? 1 : -1; // 운전자 오른쪽 = -X
     const root = new THREE.Group();
@@ -57,6 +62,8 @@ export class PedestrianManager {
     this.group.add(root);
     return {
       spec,
+      crosswalk: L.index,
+      cx: L.cx,
       root,
       visual,
       startX: L.cx + sideSign * edge,
@@ -70,8 +77,7 @@ export class PedestrianManager {
   }
 
   reset() {
-    this.redActive = false;
-    this.redTime = 0;
+    this.red = this.layouts.map(() => ({ active: false, time: 0 }));
     for (const p of this.peds) {
       p.x = p.startX;
       p.state = "waiting";
@@ -83,9 +89,8 @@ export class PedestrianManager {
     }
   }
 
-  onRed() {
-    this.redActive = true;
-    this.redTime = 0;
+  onRed(index) {
+    this.red[index] = { active: true, time: 0 };
   }
 
   // 개발/스크린샷용: 적색 이후 seconds초가 지난 상태로 즉시 이동
@@ -93,23 +98,25 @@ export class PedestrianManager {
     for (let t = 0; t < seconds; t += step) this.update(step, null);
   }
 
-  // car: { x, z, heading, speedMps } — 충돌한 보행자 수를 반환
-  update(dt, car) {
+  // car: { x, z, heading, speedMps } 또는 null(차 없음: 개발용 시점).
+  // collide: false면 충돌/막힘 판정을 하지 않는다 (메뉴 화면 등). 이번 프레임에 충돌한 보행자 수를 반환.
+  update(dt, car, collide = true) {
     let hits = 0;
-    if (this.redActive) this.redTime += dt;
+    for (const r of this.red) if (r.active) r.time += dt;
     const speed = this.cfg.walkSpeedMps;
 
     for (const p of this.peds) {
       if (p.state === "hit") continue;
 
-      if (p.state === "waiting" && this.redActive && this.redTime >= p.spec.delayAfterRedS) {
+      const red = this.red[p.crosswalk];
+      if (p.state === "waiting" && red.active && red.time >= p.spec.delayAfterRedS) {
         p.state = "walking";
       }
 
       if (p.state === "walking") {
         const nextX = p.x + p.dir * speed * dt;
         // 차가 (거의) 멈춰서 앞을 막고 있으면 충돌로 치지 않고 보행자가 기다린다.
-        p.blocked = car !== null && car.speedMps < this.cfg.blockedMinCarSpeedMps && this._overlaps(car, nextX, p.z, 0.3);
+        p.blocked = collide && car !== null && car.speedMps < this.cfg.blockedMinCarSpeedMps && this._overlaps(car, nextX, p.z, 0.3);
         if (!p.blocked) p.x = nextX;
         if ((p.dir > 0 && p.x >= p.endX) || (p.dir < 0 && p.x <= p.endX)) {
           p.x = p.endX;
@@ -117,16 +124,21 @@ export class PedestrianManager {
         }
       }
 
-      if (car && this._overlaps(car, p.x, p.z, 0) && car.speedMps >= this.cfg.blockedMinCarSpeedMps) {
+      if (collide && car && this._overlaps(car, p.x, p.z, 0) && car.speedMps >= this.cfg.blockedMinCarSpeedMps) {
         p.state = "hit";
         p.root.visible = false; // 사실적 묘사 없이 장면에서 제거 (점멸+경고음으로만 표현)
         hits++;
         continue;
       }
 
+      // 멀리 있는 보행자는 숨기고 애니메이션 갱신도 건너뛴다 (모바일 성능)
+      const near = !car || Math.abs(p.z - car.z) < this.cfg.activeDistanceM;
+      p.root.visible = near;
+      if (!near) continue;
+
       p.root.position.x = p.x;
       // 보도 블록 위에서는 블록 높이만큼 올린다
-      p.root.position.y = Math.abs(p.x - this.layout.cx) > this.roadHalfWidthM ? SIDEWALK_PAD_HEIGHT_M : 0;
+      p.root.position.y = Math.abs(p.x - p.cx) > this.roadHalfWidthM ? SIDEWALK_PAD_HEIGHT_M : 0;
       p.visual.setWalking(p.state === "walking" && !p.blocked);
       p.visual.update(dt);
     }

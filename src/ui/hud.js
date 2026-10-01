@@ -34,27 +34,14 @@ export function createHud(totalLengthM) {
   `;
   progressWrap.appendChild(progressBar);
 
-  // 신호위반/보행자 충돌 같은 이벤트를 잠깐 띄우는 알림
-  const toastEl = document.createElement("div");
-  toastEl.style.cssText = `
-    position: absolute; left: 50%; top: 22%; transform: translateX(-50%);
-    font-size: 34px; font-weight: 800; padding: 10px 26px; border-radius: 10px;
-    background: rgba(200,30,30,0.85); opacity: 0; transition: opacity 0.25s;
-  `;
-  let toastTimer = null;
-
   root.appendChild(speedEl);
   root.appendChild(modeEl);
   root.appendChild(progressWrap);
-  root.appendChild(toastEl);
   document.getElementById("app").appendChild(root);
 
   return {
-    showToast(text, durationMs = 2000) {
-      toastEl.textContent = text;
-      toastEl.style.opacity = "1";
-      clearTimeout(toastTimer);
-      toastTimer = setTimeout(() => (toastEl.style.opacity = "0"), durationMs);
+    setVisible(v) {
+      root.style.display = v ? "" : "none";
     },
     update({ speedKmh, progressZ, modeLabel }) {
       speedEl.textContent = `${Math.round(speedKmh)} km/h`;

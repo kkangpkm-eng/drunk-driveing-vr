@@ -1,16 +1,16 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { roadCenterX } from "./road.js";
-import { getIntersectionLayout } from "./intersectionLayout.js";
+import { getCrosswalkLayouts } from "./intersectionLayout.js";
 
 // 배경(잔디, 가로수, 가로등, 건물)을 인스턴싱으로 생성한다.
 // 외부 3D 모델 없이 기본 도형(Box/Cylinder/Cone/Sphere)만 사용.
 export function createEnvironment(config) {
   const group = new THREE.Group();
   const { totalLengthM, halfWidthM, startZ } = config.road;
-  // 교차로 주변(정지선~교차 도로)에는 배경 오브젝트를 두지 않는다.
-  const layout = getIntersectionLayout(config);
-  const isClear = (z, margin = 0) => z > layout.clearZMin - margin && z < layout.clearZMax + margin;
+  // 횡단보도/교차로 주변(정지선~교차 도로)에는 배경 오브젝트를 두지 않는다.
+  const layouts = getCrosswalkLayouts(config);
+  const isClear = (z, margin = 0) => layouts.some((L) => z > L.clearZMin - margin && z < L.clearZMax + margin);
 
   group.add(createGround(startZ, totalLengthM));
   group.add(createLampPosts(totalLengthM, halfWidthM, isClear));

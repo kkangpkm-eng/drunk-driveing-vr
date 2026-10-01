@@ -76,15 +76,25 @@ export const config = {
     parkingSpaceCount: 8, // 본관 앞 주차 구획선 개수
   },
 
-  // ── 신호등 교차로 + 횡단보도 (코스 중간 1곳) ─────────────────────
-  // z는 반드시 도로의 직선 구간(road.js CURVE_SEGMENTS 참고)에 둘 것.
-  intersection: {
-    z: 720, // 교차 도로 중심의 z
+  // ── 신호등 횡단보도 (코스 전체 5곳) ───────────────────────────
+  // crosswalks[]의 각 항목이 횡단보도 1곳. z는 반드시 도로의 직선 구간
+  // (road.js CURVE_SEGMENTS: 0~250, 500~950, 1250~1550, 1750~1800)에 둘 것.
+  // crossRoad: true면 교차 도로가 있는 교차로, false면 도로 중간의 단독 횡단보도.
+  // signal: 항목별로 아래 crosswalkDefaults.signal 값을 덮어쓸 수 있다 (예: 녹색 유지 시간을 달리해서 예측하기 어렵게).
+  crosswalks: [
+    { z: 160, crossRoad: false, signal: { greenHoldS: 0.4 } },
+    { z: 600, crossRoad: true, signal: { greenHoldS: 1.6 } },
+    { z: 860, crossRoad: true, signal: { greenHoldS: 0.2 } },
+    { z: 1330, crossRoad: false, signal: { greenHoldS: 1.0 } },
+    { z: 1500, crossRoad: true, signal: { greenHoldS: 0.6 } },
+  ],
+  crosswalkDefaults: {
+    // 단독 횡단보도는 z가 횡단보도 중심, 교차로는 z가 교차 도로 중심
     crossRoadHalfWidthM: 4, // 교차 도로 폭의 절반
     crossRoadLengthM: 160, // 교차 도로 전체 길이
     crosswalk: {
       lengthM: 4, // 횡단보도 폭(진행 방향 길이)
-      gapToCrossRoadM: 1.5, // 횡단보도와 교차 도로 사이 간격
+      gapToCrossRoadM: 1.5, // 횡단보도와 교차 도로 사이 간격 (교차로만)
       stripeWidthM: 0.5,
       stripeGapM: 0.5,
       heightAboveRoadM: 0.01, // 도로면보다 1cm 위 (z-fighting 방지)
@@ -95,7 +105,7 @@ export const config = {
       triggerDistanceM: 75, // 차 앞부분이 정지선에서 이 거리 안에 들어오면 신호 전환 시작
       greenHoldS: 0.6, // 트리거 후 녹색 유지 시간
       yellowDurationS: 3.0, // 황색 시간
-      redDurationS: 16, // 적색 시간 (이후 다시 녹색)
+      redDurationS: 11, // 적색 시간 (보행자 횡단이 끝날 만큼, 이후 다시 녹색)
       poleHeightM: 5.6,
       armLengthM: 5.5, // 기둥에서 도로 쪽으로 뻗는 가로 암 길이
       lampRadiusM: 0.15,
@@ -108,6 +118,7 @@ export const config = {
 
   // ── 보행자 ───────────────────────────────────────────────────
   // 적색 신호가 켜지면 횡단보도를 건넌다. 일반/음주 모드 모두 동일 조건.
+  // 횡단보도마다 아래 list가 그대로 배치된다 (crosswalks[i].pedestrians로 개별 지정 가능).
   pedestrians: {
     useGltf: true, // false면 기본 도형 캐릭터(사인파 팔다리)를 사용
     walkSpeedMps: 1.3, // 보행 속도 (m/s)
@@ -116,12 +127,43 @@ export const config = {
     waitOffsetFromRoadEdgeM: 1.2, // 도로 끝에서 바깥쪽으로 대기 위치까지 거리
     collisionRadiusM: 0.35,
     blockedMinCarSpeedMps: 0.8, // 차가 이 속도 미만이면 충돌 대신 보행자가 멈춰서 기다림
+    activeDistanceM: 260, // 운전자와 이 거리 이내의 보행자만 애니메이션 갱신/표시 (성능)
     // startSide: "right"(운전자 기준 오른쪽, -X) | "left"
     // offsetInCrosswalkM: 횡단보도 안에서 정지선 쪽 끝으로부터의 거리
     list: [
       { model: "character-male-b.glb", startSide: "right", delayAfterRedS: 0.8, offsetInCrosswalkM: 1.3 },
       { model: "character-female-c.glb", startSide: "right", delayAfterRedS: 2.0, offsetInCrosswalkM: 2.7 },
     ],
+  },
+
+  // ── 앞차 급정거 돌발 상황 ───────────────────────────────────────
+  // 운전자가 spawnWhenPlayerZ를 지나면 앞쪽 spawnAheadM 지점에 앞차가 나타나 같은 차로를 달리다가,
+  // brakeAtZ에서 급정거한다. 일반/음주 모드 모두 같은 위치에서 발생.
+  leadCar: {
+    enabled: true,
+    spawnWhenPlayerZ: 900,
+    spawnAheadM: 110,
+    approachSpeedKmh: 35, // 운전자가 따라붙기 전까지 앞차 속도 (느리게 달려 거리가 좁혀지게)
+    followGapM: 22, // 따라붙은 뒤 유지하려는 차간 거리
+    minSpeedKmh: 30,
+    maxSpeedKmh: 70,
+    accelMps2: 2.0, // 평소 가감속 한계
+    brakeAtZ: 1120, // 급정거 시작 지점 (곡선 구간)
+    brakeDecelMps2: 8.0, // 급정거 감속도
+    stopHoldS: 3.0, // 정지 후 대기 시간
+    resumeSpeedKmh: 60,
+    laneOffsetM: -2, // 도로 중심선 기준 x 오프셋 (운전자 차로 = 오른쪽 차로)
+    lengthM: 4.6,
+    widthM: 1.8,
+    bodyColor: 0x9a2a2a,
+    despawnAheadM: 260, // 운전자보다 이만큼 앞서가면 사라짐
+  },
+
+  // ── 측정 ────────────────────────────────────────────────────
+  measurement: {
+    brakeReactionThreshold: 0.2, // 원래 브레이크 입력이 이 값 이상이면 "반응"으로 판정
+    reactionTimeoutS: 5, // 이 시간 안에 반응이 없으면 반응 실패로 기록
+    stoppedSpeedMps: 0.3, // 이 속도 미만이면 정지로 판정 (정지거리 측정)
   },
 
   // ── 충돌 피드백 (사실적 묘사 없이 화면 점멸 + 경고음만) ────────────
@@ -136,11 +178,54 @@ export const config = {
     stopVehicle: true, // 충돌 시 차량 정지
   },
 
+  // ── 게임패드 (블루투스 컨트롤러, 브라우저 "standard" 배치 기준) ──────
+  // 버튼 번호: 0=아래(스위치 B/엑스박스 A), 1=오른쪽(스위치 A), 2=왼쪽, 3=위,
+  // 6=ZL/LT, 7=ZR/RT, 8=−/Select, 9=+/Start, 12~15=방향키(상하좌우)
+  gamepad: {
+    steerAxis: 0, // 왼쪽 스틱 좌우
+    steerDeadzone: 0.12,
+    steerCurve: 1.6, // 1보다 크면 스틱 중앙 부근이 더 섬세해짐
+    throttleButton: 7, // ZR
+    brakeButton: 6, // ZL
+    pedalAxis: 3, // 오른쪽 스틱 상하 (위=가속, 아래=브레이크). -1이면 사용 안 함
+    pedalDeadzone: 0.15,
+    // 스위치 ZL/ZR처럼 디지털(0/1)인 버튼은 키보드처럼 서서히 올라가게 보간
+    digitalRampUpPerSec: 3.0,
+    digitalRampDownPerSec: 4.5,
+    confirmButtons: [0, 1], // 메뉴 선택 (스위치 A/B 어느 쪽을 눌러도 선택)
+    backButtons: [8], // 메뉴 뒤로
+    pauseButtons: [9], // 주행 중 일시정지
+    recenterButtons: [3], // VR 시점 정면 재설정
+    menuStickThreshold: 0.6,
+  },
+
+  // ── VR (카드보드형 고글) ─────────────────────────────────────────
+  vr: {
+    preferWebXR: true, // WebXR(immersive-vr)이 지원되면 사용, 아니면 화면 분할 + 자이로 방식
+    stereoEyeSeparationM: 0.064, // 화면 분할 방식의 양안 간격
+    stereoFovDeg: 85, // 화면 분할 방식의 세로 시야각 (카드보드 렌즈에 맞게)
+    pixelRatio: 1.0, // VR 중 렌더 해상도 배율 (성능)
+    vignetteInnerDeg: 26, // VR용 터널 비전: 이 각도까지는 투명
+    vignetteOuterDeg: 62, // 이 각도부터 완전히 어두움
+    blurInStereo: true, // 화면 분할 방식에서 블러(CSS) 사용 여부. WebXR에서는 항상 끔
+  },
+
+  // ── 3D 메뉴/알림 패널 (VR에서도 보이도록 장면 안에 그린다) ───────────
+  ui: {
+    menuDistanceM: 1.9, // 운전자 눈 앞 메뉴 패널 거리
+    menuWidthM: 1.9,
+    toastDistanceM: 3.0,
+    toastHeightOffsetM: 0.35, // 눈높이 기준 알림 높이
+    toastDurationS: 2.0,
+  },
+
   // ── 개발용 고정 시점 (?view=station | intersection | pedestrian) ───
+  // intersection/pedestrian 시점은 viewCrosswalkIndex 번째 횡단보도 기준 상대 좌표 (URL ?cw=번호로 변경 가능)
   debugViews: {
+    viewCrosswalkIndex: 1,
     station: { position: [14, 16, 0], lookAt: [-32, 2, -48] },
-    intersection: { position: [44, 9, 680], lookAt: [30, 1, 712] },
-    pedestrian: { position: [36, 3.2, 696], lookAt: [29, 0.8, 708] },
+    intersection: { position: [14, 9, -40], lookAt: [0, 1, -8] },
+    pedestrian: { position: [6, 3.2, -24], lookAt: [-1, 0.8, -12] },
   },
 
   // ── 음주 모드 ────────────────────────────────────────────────
